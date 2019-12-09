@@ -11,6 +11,7 @@ class Weapon {
     var fireTimer: Double? = null
     var lastAngle: Double? = null
     var lastFireTick: Int? = null
+
     constructor() {}
     constructor(typ: model.WeaponType, params: model.WeaponParams, magazine: Int, wasShooting: Boolean, spread: Double, fireTimer: Double?, lastAngle: Double?, lastFireTick: Int?) {
         this.typ = typ
@@ -22,6 +23,7 @@ class Weapon {
         this.lastAngle = lastAngle
         this.lastFireTick = lastFireTick
     }
+
     companion object {
         @Throws(java.io.IOException::class)
         fun readFrom(stream: java.io.InputStream): Weapon {
@@ -54,6 +56,7 @@ class Weapon {
             return result
         }
     }
+
     @Throws(java.io.IOException::class)
     fun writeTo(stream: java.io.OutputStream) {
         StreamUtil.writeInt(stream, typ.discriminant)

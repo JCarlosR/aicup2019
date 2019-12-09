@@ -3,6 +3,7 @@ package model
 import util.StreamUtil
 
 abstract class Item {
+
     @Throws(java.io.IOException::class)
     abstract fun writeTo(stream: java.io.OutputStream)
     companion object {

@@ -5,11 +5,17 @@ import util.StreamUtil
 class Vec2Double {
     var x: Double = 0.0
     var y: Double = 0.0
+
     constructor() {}
     constructor(x: Double, y: Double) {
         this.x = x
         this.y = y
     }
+
+    override fun toString(): String {
+        return "$x, $y"
+    }
+
     companion object {
         @Throws(java.io.IOException::class)
         fun readFrom(stream: java.io.InputStream): Vec2Double {
