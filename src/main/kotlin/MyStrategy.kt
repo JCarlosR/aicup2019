@@ -75,9 +75,9 @@ class MyStrategy {
             return false
 
         // don't shoot a Rocket if there is a wall near
-        /*val nearTile*/ game.getTilesInTrajectory(this, aim)
-        if (this.hasWeapon(WeaponType.ROCKET_LAUNCHER))
-            return true // ?
+        val canExplodeNearWall = game.canExplodeNearWall(this, aim)
+        if (this.hasWeapon(WeaponType.ROCKET_LAUNCHER) && canExplodeNearWall)
+            return false
 
         return true
     }
@@ -88,24 +88,31 @@ class MyStrategy {
     private fun Game.nextTileLeft(unit: model.Unit)
             = level.tiles[(unit.position.x - 1).toInt()][(unit.position.y).toInt()]
 
-    private fun Game.getTilesInTrajectory(from: model.Unit, aim: Vec2Double) {
-        var dx: Double = 0.0
-        val pairs = arrayListOf<Pair<Int, Int>>()
+    private fun Game.canExplodeNearWall(from: model.Unit, aim: Vec2Double): Boolean {
+        var dx = 0.0
+        // val pairs = arrayListOf<Pair<Int, Int>>()
 
-        while (dx <= aim.x) {
+        while (dx <= aim.x && dx < 5) {
             val targetX = from.position.x + dx
 
             val dy = aim.y * dx / aim.x // same angle
             val targetY = from.position.y + dy
 
+            val isWall = level.tiles[targetX.toInt()][targetY.toInt()] == Tile.WALL
+            if (isWall && distanceSqr(from.position, Vec2Double(targetX, targetY)) < 3) {
+                println("Near wall at $targetX, $targetY")
+                return true
+            }
+            /*
             val pair = Pair(targetX.toInt(), targetY.toInt())
             if (!pairs.contains(pair))
                 pairs.add(pair)
+            */
 
             dx += 0.6
         }
-        println(pairs)
-        // level.tiles[(unit.position.x - 1).toInt()][(unit.position.y).toInt()]
+        // println(pairs)
+        return false
     }
 
 
