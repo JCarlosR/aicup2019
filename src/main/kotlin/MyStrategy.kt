@@ -1,4 +1,5 @@
 import model.*
+import kotlin.math.abs
 
 class MyStrategy {
 
@@ -7,7 +8,7 @@ class MyStrategy {
         for (other in game.units) {
             if (other.playerId != unit.playerId) {
                 if (nearestEnemy == null ||
-                        distanceSqr(unit.position, other.position) < distanceSqr(unit.position, nearestEnemy.position)) {
+                        unit.distanceTo(other.position) < unit.distanceTo(nearestEnemy.position)) {
                     nearestEnemy = other
                 }
             }
@@ -71,19 +72,41 @@ class MyStrategy {
         if (nearestEnemy == null)
             return false
 
-        // don't shoot if the direction is blocked by a wall
+        /*
         if (aim.x > 0 && game.nextTileRight(this) == Tile.WALL)
             return false
         if (aim.x < 0 && game.nextTileLeft(this) == Tile.WALL)
             return false
+        */
 
-        // don't shoot a Rocket if there is a wall near
+        // if enemy is on top, simply shoot
+        if (nearestEnemy.isOnTopOf(this))
+            return true
+
+        // don't shoot if there is a wall in the middle
         val affectedWall = game.getNearestAffectedWall(this, aim)
         // this.hasWeapon(WeaponType.ROCKET_LAUNCHER)
         if (affectedWall != null && this.distanceTo(nearestEnemy.position) > this.distanceTo(affectedWall))
             return false
 
         return true
+    }
+
+    private fun model.Unit.isOnTopOf(unit: model.Unit): Boolean {
+        return this.position.y > unit.position.y && abs(this.position.x - unit.position.x) < 0.7
+    }
+
+    // TODO: Consider reloadTime & opponent distance
+    private fun model.Unit.shouldReload(): Boolean {
+        weapon?.let {
+            val minBulletsStock = it.params.magazineSize / 2
+            // print("magazine = ${it.magazine}, ")
+            if (weapon != null && it.magazine < minBulletsStock) {
+                return true
+            }
+        }
+
+        return false
     }
 
     private fun Game.nextTileRight(unit: model.Unit)
@@ -125,6 +148,7 @@ class MyStrategy {
 
         // Unit prefers to stay in the health pack
         var targetPos: Vec2Double = unit.position
+        var targetLabel = "None"
 
         // TODO: if there is a better weapon near, just take it
         // TODO: evade rocket bullets as every impact causes a lot of damage
@@ -133,9 +157,11 @@ class MyStrategy {
         // unless doesn't have a weapon yet
         if (!unit.hasWeapon() && nearestWeapon != null) {
             targetPos = nearestWeapon.position
+            targetLabel = "Weapon"
             // println("Target Weapon: ${targetPos.x}, ${targetPos.y}")
         } else if (nearestHealthPack != null /*&& unit.tookDamage(game)*/) {
             targetPos = nearestHealthPack.position
+            targetLabel = "Health"
             // ("Target HealthPack: ${targetPos.x}, ${targetPos.y}")
         }/*else if (nearestEnemy != null) {
             targetPos = nearestEnemy.position
@@ -147,7 +173,7 @@ class MyStrategy {
         val aim = unit.aimTo(nearestEnemy)
         // println("aim: $aim")
 
-        val shoot = unit.shouldShoot(nearestEnemy, aim, game)
+        val shoot = unit.hasWeapon() && unit.shouldShoot(nearestEnemy, aim, game)
 
         var swapWeapon = false
         if (nearestWeapon != null) {
@@ -164,35 +190,78 @@ class MyStrategy {
             jump = true
         }
 
+        val reload = if (shoot) {
+            false
+        } else {
+            unit.shouldReload()
+        }
+
         val action = UnitAction()
         action.velocity = adjustVelocity(targetPos.x - unit.position.x)
-        // println("unit.x = ${unit.position.x}, target.x = ${targetPos.x}, velocity = ${action.velocity}")
         action.jump = jump
         action.jumpDown = !jump
         action.aim = aim
         action.shoot = shoot
-        action.reload = false
+        action.reload = reload
         action.swapWeapon = swapWeapon
         action.plantMine = false
+
+        println("unit = ${format(unit.position)}, " +
+                "aim = ${format(aim)}, " +
+                "enemy = ${format(nearestEnemy?.position ?: Vec2Double())}, " +
+                "velX = ${format(action.velocity)}, " +
+                "shoot = $shoot, " +
+                "target = ${targetInfo(targetLabel, targetPos)}")
 
         return action
     }
 
     private fun adjustVelocity(velocity: Double): Double {
-        if (velocity > 0.0 && velocity < 1.0) {
-            return velocity + 0.7
+        /*if (velocity > 0.0 && velocity < 1.0) {
+            return velocity + 1
+        }
+        if (velocity > -1.0 && velocity < 0.0) {
+            return  velocity - 1
+        }*/
+        val vel = abs(velocity)
+
+        if (vel >= 1.7 && vel < 2.7) {
+            return velocity * 2
         }
 
-        if (velocity > -1.0 && velocity < 0.0) {
-            return  velocity - 0.7
+        if (vel > 0.5 && vel < 1.7) {
+            return velocity * 3
+        }
+
+        if (vel <= 0.5) {
+            return velocity * 4
         }
 
         return velocity
+    }
+
+    private fun targetInfo(label: String, position: Vec2Double): String {
+        if (label == "None")
+            return label
+
+        return "$label ${format(position)})"
     }
 
     companion object {
         internal fun distanceSqr(a: Vec2Double, b: Vec2Double): Double {
             return (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)
         }
+    }
+
+    private fun format(v: Vec2Double): String {
+        return "(${v.x.fewDecimals()}, ${v.y.fewDecimals()})"
+    }
+
+    private fun format(d: Double): String {
+        return d.fewDecimals()
+    }
+
+    private fun Double.fewDecimals(): String {
+        return String.format("%.2f", this)
     }
 }

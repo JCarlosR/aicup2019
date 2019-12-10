@@ -7,13 +7,14 @@ class Vec2Double {
     var y: Double = 0.0
 
     constructor() {}
+
     constructor(x: Double, y: Double) {
         this.x = x
         this.y = y
     }
 
     override fun toString(): String {
-        return "$x, $y"
+        return "($x, $y)"
     }
 
     companion object {
