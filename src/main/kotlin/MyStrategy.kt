@@ -64,6 +64,9 @@ class MyStrategy {
         return false
     }
 
+    private fun model.Unit.distanceTo(certainPosition: Vec2Double)
+            = distanceSqr(this.position, certainPosition)
+
     private fun model.Unit.shouldShoot(nearestEnemy: model.Unit?, aim: Vec2Double, game: Game): Boolean {
         if (nearestEnemy == null)
             return false
@@ -75,8 +78,9 @@ class MyStrategy {
             return false
 
         // don't shoot a Rocket if there is a wall near
-        val canExplodeNearWall = game.canExplodeNearWall(this, aim)
-        if (this.hasWeapon(WeaponType.ROCKET_LAUNCHER) && canExplodeNearWall)
+        val affectedWall = game.getNearestAffectedWall(this, aim)
+        // this.hasWeapon(WeaponType.ROCKET_LAUNCHER)
+        if (affectedWall != null && this.distanceTo(nearestEnemy.position) > this.distanceTo(affectedWall))
             return false
 
         return true
@@ -88,31 +92,26 @@ class MyStrategy {
     private fun Game.nextTileLeft(unit: model.Unit)
             = level.tiles[(unit.position.x - 1).toInt()][(unit.position.y).toInt()]
 
-    private fun Game.canExplodeNearWall(from: model.Unit, aim: Vec2Double): Boolean {
+    private fun Game.getNearestAffectedWall(from: model.Unit, aim: Vec2Double): Vec2Double? {
         var dx = 0.0
-        // val pairs = arrayListOf<Pair<Int, Int>>()
 
-        while (dx <= aim.x && dx < 5) {
+        while (dx <= aim.x) {
             val targetX = from.position.x + dx
 
             val dy = aim.y * dx / aim.x // same angle
             val targetY = from.position.y + dy
 
             val isWall = level.tiles[targetX.toInt()][targetY.toInt()] == Tile.WALL
-            if (isWall && distanceSqr(from.position, Vec2Double(targetX, targetY)) < 3) {
-                println("Near wall at $targetX, $targetY")
-                return true
+
+            if (isWall) {
+                // println("Nearest affected wall at $targetX, $targetY")
+                return Vec2Double(targetX, targetY)
             }
-            /*
-            val pair = Pair(targetX.toInt(), targetY.toInt())
-            if (!pairs.contains(pair))
-                pairs.add(pair)
-            */
 
             dx += 0.6
         }
         // println(pairs)
-        return false
+        return null
     }
 
 
