@@ -95,7 +95,7 @@ class MyStrategy {
     private fun Game.getNearestAffectedWall(from: model.Unit, aim: Vec2Double): Vec2Double? {
         var dx = 0.0
 
-        while (dx <= aim.x) {
+        while (aim.x > 0 && dx <= aim.x || aim.x < 0 && dx >= aim.x) {
             val targetX = from.position.x + dx
 
             val dy = aim.y * dx / aim.x // same angle
@@ -108,7 +108,10 @@ class MyStrategy {
                 return Vec2Double(targetX, targetY)
             }
 
-            dx += 0.6
+            if (aim.x > 0)
+                dx += 0.6
+            else
+                dx -= 0.6
         }
         // println(pairs)
         return null
@@ -126,7 +129,7 @@ class MyStrategy {
         // unless doesn't have a weapon yet
         if (!unit.hasWeapon() && nearestWeapon != null) {
             targetPos = nearestWeapon.position
-            // ("Target Weapon: ${targetPos.x}, ${targetPos.y}")
+            println("Target Weapon: ${targetPos.x}, ${targetPos.y}")
         } else if (nearestHealthPack != null /*&& unit.tookDamage(game)*/) {
             targetPos = nearestHealthPack.position
             // ("Target HealthPack: ${targetPos.x}, ${targetPos.y}")
@@ -140,7 +143,7 @@ class MyStrategy {
         // debug.draw(CustomData.Log("Target pos: $targetPos"))
 
         val aim = unit.aimTo(nearestEnemy)
-        println("aim: $aim")
+        // println("aim: $aim")
 
         val shoot = unit.shouldShoot(nearestEnemy, aim, game)
 
@@ -160,7 +163,8 @@ class MyStrategy {
         }
 
         val action = UnitAction()
-        action.velocity = targetPos.x - unit.position.x
+        action.velocity = adjustVelocity(targetPos.x - unit.position.x)
+        // println("unit.x = ${unit.position.x}, target.x = ${targetPos.x}, velocity = ${action.velocity}")
         action.jump = jump
         action.jumpDown = !jump
         action.aim = aim
@@ -170,6 +174,18 @@ class MyStrategy {
         action.plantMine = false
 
         return action
+    }
+
+    private fun adjustVelocity(velocity: Double): Double {
+        if (velocity > 0.0 && velocity < 1.0) {
+            return velocity + 0.7
+        }
+
+        if (velocity > -1.0 && velocity < 0.0) {
+            return  velocity - 0.7
+        }
+
+        return velocity
     }
 
     companion object {
