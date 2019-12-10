@@ -126,10 +126,14 @@ class MyStrategy {
         // Unit prefers to stay in the health pack
         var targetPos: Vec2Double = unit.position
 
+        // TODO: if there is a better weapon near, just take it
+        // TODO: evade rocket bullets as every impact causes a lot of damage
+        // TODO: if there is a rocket launcher near & the enemy is just in front, grab it
+
         // unless doesn't have a weapon yet
         if (!unit.hasWeapon() && nearestWeapon != null) {
             targetPos = nearestWeapon.position
-            println("Target Weapon: ${targetPos.x}, ${targetPos.y}")
+            // println("Target Weapon: ${targetPos.x}, ${targetPos.y}")
         } else if (nearestHealthPack != null /*&& unit.tookDamage(game)*/) {
             targetPos = nearestHealthPack.position
             // ("Target HealthPack: ${targetPos.x}, ${targetPos.y}")
@@ -138,8 +142,6 @@ class MyStrategy {
             // ("Target Enemy: ${targetPos.x}, ${targetPos.y}")
         }*/
 
-        // println("Target pos: ${targetPos.x}, ${targetPos.y}")
-        // println("Unit pos: ${unit.position.x}, ${unit.position.y}")
         // debug.draw(CustomData.Log("Target pos: $targetPos"))
 
         val aim = unit.aimTo(nearestEnemy)
