@@ -1,16 +1,15 @@
 import model.*
+import model.Unit
 import kotlin.math.abs
+import kotlin.math.max
 
 class MyStrategy {
 
     private fun getNearestEnemy(unit: model.Unit, game: Game): model.Unit? {
-        var nearestEnemy: model.Unit? = null
-        for (other in game.units) {
-            if (other.playerId != unit.playerId) {
-                if (nearestEnemy == null ||
-                        unit.distanceTo(other.position) < unit.distanceTo(nearestEnemy.position)) {
-                    nearestEnemy = other
-                }
+        var nearestEnemy: Unit? = null
+        for (other in game.getOtherUnits(unit)) {
+            if (nearestEnemy == null || unit.distanceTo(other.position) < unit.distanceTo(nearestEnemy.position)) {
+                nearestEnemy = other
             }
         }
         return nearestEnemy
@@ -65,19 +64,17 @@ class MyStrategy {
         return false
     }
 
-    private fun model.Unit.distanceTo(certainPosition: Vec2Double)
+    private fun Unit.distanceTo(certainPosition: Vec2Double)
             = distanceSqr(this.position, certainPosition)
 
-    private fun model.Unit.shouldShoot(nearestEnemy: model.Unit?, aim: Vec2Double, game: Game): Boolean {
+    private fun Unit.distanceFromCenter(certainPosition: Vec2Double)
+            = distanceSqr(this.centerPosition(), certainPosition)
+
+    private fun Unit.centerPosition() = Vec2Double(position.x + size.x/2, position.y + size.y/2)
+
+    private fun Unit.shouldShoot(nearestEnemy: model.Unit?, aim: Vec2Double, game: Game): Boolean {
         if (nearestEnemy == null)
             return false
-
-        /*
-        if (aim.x > 0 && game.nextTileRight(this) == Tile.WALL)
-            return false
-        if (aim.x < 0 && game.nextTileLeft(this) == Tile.WALL)
-            return false
-        */
 
         // if enemy is on top, simply shoot
         if (nearestEnemy.isOnTopOf(this))
@@ -92,12 +89,85 @@ class MyStrategy {
         return true
     }
 
-    private fun model.Unit.isOnTopOf(unit: model.Unit): Boolean {
+    private fun Unit.isOnTopOf(unit: Unit): Boolean {
         return this.position.y > unit.position.y && abs(this.position.x - unit.position.x) < 0.7
     }
 
-    // TODO: Consider reloadTime & opponent distance
+    private fun Unit.nearBullets(game: Game, weaponType: WeaponType)
+            = game.bullets.filter { bullet ->
+                bullet.weaponType == weaponType
+                && bullet.playerId != playerId
+                && distanceFromCenter(bullet.position) < NEAR_BULLETS_DISTANCE
+            }
+
+    private fun Unit.dodgeBullet(bullet: Bullet): Vec2Double {
+        println(
+            "bullet ${format(bullet.position)}, " +
+            "collision ${willCollision(bullet)}, " +
+            "comingHorizontally ${bullet.isComingHorizontallyTo(position)}"
+        )
+
+        // TODO: detect where is better to move & be safe
+        if (willCollision(bullet) && bullet.isComingHorizontallyTo(position)) {
+            return Vec2Double(position.x, position.y + 1)
+        }
+
+        return position
+    }
+
+    private fun Unit.willCollision(bullet: Bullet): Boolean {
+        // bullet position considers the center of it
+        val x1 = bullet.position.x - bullet.size/2
+        val x2 = bullet.position.x + bullet.size/2
+        val y1 = bullet.position.y - bullet.size/2
+        val y2 = bullet.position.y + bullet.size/2
+
+        // unit position considers the bottom middle point
+        val x3 = position.x - size.x/2
+        val x4 = position.x + size.x/2
+        val y3 = position.y
+        val y4 = position.y + size.y
+
+        val left = max(x1, x3)
+        val top = max(y2, y4)
+        val right = max(x2, x4)
+        val bottom = max(y1, y3)
+
+        val width = right - left
+        val height = top - bottom
+
+        if (width<0 || height<0)
+            return false
+
+        return true
+    }
+
+    private fun Bullet.isComingHorizontallyTo(certainPosition: Vec2Double): Boolean {
+        val bulletAtTheRight = certainPosition.x < position.x
+        val movingToLeft = velocity.x < 0
+
+        if (bulletAtTheRight && movingToLeft)
+            return true
+
+        val bulletAtTheLeft = position.x < certainPosition.x
+        val movingToRight = velocity.x > 0
+
+        if (bulletAtTheLeft && movingToRight)
+            return true
+
+        return false
+    }
+
+    private fun model.Unit.canNotMoveRight(game: Game): Boolean {
+        return game.nextTileRight(this) == Tile.WALL || game.thereIsUnitAtTheRight(this)
+    }
+
+    private fun model.Unit.canNotMoveLeft(game: Game): Boolean {
+        return game.nextTileLeft(this) == Tile.WALL || game.thereIsUnitAtTheLeft(this)
+    }
+
     private fun model.Unit.shouldReload(): Boolean {
+        // TODO: Consider reloadTime & opponent distance
         weapon?.let {
             val minBulletsStock = it.params.magazineSize / 2
             // print("magazine = ${it.magazine}, ")
@@ -140,38 +210,70 @@ class MyStrategy {
         return null
     }
 
+    private fun Game.getOtherUnits(excludedUnit: Unit): List<Unit> {
+        return units.filter { it.playerId != excludedUnit.playerId }
+    }
+
+    private fun Game.thereIsUnitAtTheRight(mainUnit: Unit): Boolean {
+        for (other in getOtherUnits(mainUnit)) {
+            if (other.position.x.toInt() == mainUnit.position.x.toInt() +1) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun Game.thereIsUnitAtTheLeft(mainUnit: Unit): Boolean {
+        for (other in getOtherUnits(mainUnit)) {
+            if (other.position.x.toInt() == mainUnit.position.x.toInt() -1) {
+                return true
+            }
+        }
+        return false
+    }
 
     fun getAction(unit: model.Unit, game: Game, debug: Debug): UnitAction {
+        print("tick ${game.currentTick}: ")
+
         val nearestEnemy = getNearestEnemy(unit, game)
         val nearestWeapon = getNearestWeapon(unit, game)
         val nearestHealthPack = getNearestHealthPack(unit, game)
 
-        // Unit prefers to stay in the health pack
+        // TODO: if there is a better weapon near, just take it
+        // TODO: if there is a rocket launcher near & the enemy is just in front, grab it
+
+        // TODO: dodge bullets considering explosion area
+
+        // By priority, unit prefers to:
+        // 1- Look for a weapon
+        // 2- Dodge Rocket Launcher bullets
+        // 3- Look for a health pack / stay there
+        // 4- Dodge other bullets
+        // 4- Take a better weapon / swap if ammo is almost gone
+
         var targetPos: Vec2Double = unit.position
         var targetLabel = "None"
 
-        // TODO: if there is a better weapon near, just take it
-        // TODO: evade rocket bullets as every impact causes a lot of damage
-        // TODO: if there is a rocket launcher near & the enemy is just in front, grab it
+        val rocketBullets = unit.nearBullets(game, WeaponType.ROCKET_LAUNCHER)
 
-        // unless doesn't have a weapon yet
+        // 1-
         if (!unit.hasWeapon() && nearestWeapon != null) {
             targetPos = nearestWeapon.position
             targetLabel = "Weapon"
-            // println("Target Weapon: ${targetPos.x}, ${targetPos.y}")
+        } else if (rocketBullets.isNotEmpty()) {
+            targetPos = unit.dodgeBullet(rocketBullets.first())
+            targetLabel = "DodgeRocket"
         } else if (nearestHealthPack != null /*&& unit.tookDamage(game)*/) {
-            targetPos = nearestHealthPack.position
+            val healthPackPos = nearestHealthPack.position
+            if (healthPackPos.isOverPlatform(game))
+                healthPackPos.y += 0.3
+            targetPos =  healthPackPos
             targetLabel = "Health"
-            // ("Target HealthPack: ${targetPos.x}, ${targetPos.y}")
         }/*else if (nearestEnemy != null) {
             targetPos = nearestEnemy.position
-            // ("Target Enemy: ${targetPos.x}, ${targetPos.y}")
         }*/
 
-        // debug.draw(CustomData.Log("Target pos: $targetPos"))
-
         val aim = unit.aimTo(nearestEnemy)
-        // println("aim: $aim")
 
         val shoot = unit.hasWeapon() && unit.shouldShoot(nearestEnemy, aim, game)
 
@@ -183,10 +285,10 @@ class MyStrategy {
         }
 
         var jump = targetPos.y > unit.position.y
-        if (targetPos.x > unit.position.x && game.nextTileRight(unit) == Tile.WALL) {
+        if (targetPos.x > unit.position.x && unit.canNotMoveRight(game)) {
             jump = true
         }
-        if (targetPos.x < unit.position.x && game.nextTileLeft(unit) == Tile.WALL) {
+        if (targetPos.x < unit.position.x && !unit.canNotMoveLeft(game)) {
             jump = true
         }
 
@@ -206,14 +308,20 @@ class MyStrategy {
         action.swapWeapon = swapWeapon
         action.plantMine = false
 
-        println("unit = ${format(unit.position)}, " +
-                "aim = ${format(aim)}, " +
-                "enemy = ${format(nearestEnemy?.position ?: Vec2Double())}, " +
-                "velX = ${format(action.velocity)}, " +
-                "shoot = $shoot, " +
-                "target = ${targetInfo(targetLabel, targetPos)}")
+        debug.draw(CustomData.Log(
+        "unit ${format(unit.position)}, " +
+            // "aim = ${format(aim)}, " +
+            "enemy ${format(nearestEnemy?.position ?: Vec2Double())}, " +
+            "velX ${format(action.velocity)}, " +
+            // "shoot = $shoot, " +
+            "target ${targetInfo(targetLabel, targetPos)}"
+        ))
 
         return action
+    }
+
+    private fun Vec2Double.isOverPlatform(game: Game): Boolean {
+        return game.level.tiles[x.toInt()][y.toInt()-1] == Tile.PLATFORM
     }
 
     private fun adjustVelocity(velocity: Double): Double {
@@ -251,6 +359,8 @@ class MyStrategy {
         internal fun distanceSqr(a: Vec2Double, b: Vec2Double): Double {
             return (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)
         }
+
+        const val NEAR_BULLETS_DISTANCE = 12
     }
 
     private fun format(v: Vec2Double): String {
