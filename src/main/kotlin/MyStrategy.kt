@@ -57,11 +57,18 @@ class MyStrategy {
         if (weapon == null)
             return true
 
-        // if the nearestWeapon is a Rifle, and unit doesn't have one, better swap
-        if (nearestWeaponType == WeaponType.ASSAULT_RIFLE && weapon?.typ != WeaponType.ASSAULT_RIFLE)
+        // if the nearestWeapon is a Rifle, and unit doesn't have 1, take it
+        val nearestRifle = nearestWeaponType == WeaponType.ASSAULT_RIFLE && weapon?.typ != WeaponType.ASSAULT_RIFLE
+
+        if (nearestRifle || runningOutOfAmmo(1))
             return true
 
         return false
+    }
+
+    private fun Unit.runningOutOfAmmo(lessThanOrEqual: Int = 3): Boolean {
+        val remainingBullets = weapon?.magazine ?: 0
+        return remainingBullets <= lessThanOrEqual
     }
 
     private fun Unit.distanceTo(certainPosition: Vec2Double)
@@ -100,19 +107,22 @@ class MyStrategy {
                 && distanceFromCenter(bullet.position) < NEAR_BULLETS_DISTANCE
             }
 
-    private fun Unit.dodgeBullet(bullet: Bullet): Vec2Double {
+    private fun Unit.dodgeBullet(bullet: Bullet, intendedPos: Vec2Double): Vec2Double {
         println(
             "bullet ${format(bullet.position)}, " +
+            "bSize ${format(bullet.size)}, " +
+            "bVeloc ${format(bullet.velocity)}, " +
+            "bDamage ${bullet.damage}, " +
             "collision ${willCollision(bullet)}, " +
-            "comingHorizontally ${bullet.isComingHorizontallyTo(position)}"
+            "comingH ${bullet.isComingHorizontallyTo(position)}"
         )
 
-        // TODO: detect where is better to move & be safe
+        // where is better to move?
         if (willCollision(bullet) && bullet.isComingHorizontallyTo(position)) {
             return Vec2Double(position.x, position.y + 1)
         }
 
-        return position
+        return intendedPos
     }
 
     private fun Unit.willCollision(bullet: Bullet): Boolean {
@@ -169,15 +179,15 @@ class MyStrategy {
     private fun Unit.shouldReload(): Boolean {
         // TODO: Consider reloadTime & opponent distance
         weapon?.let {
-            val minBulletsStock = it.params.magazineSize / 2
-            // print("magazine = ${it.magazine}, ")
-            if (weapon != null && it.magazine < minBulletsStock) {
+            if (hasWeapon() && it.lessThanHalfBullets()) {
                 return true
             }
         }
 
         return false
     }
+
+    private fun Weapon.lessThanHalfBullets() = magazine < params.magazineSize / 2
 
     private fun Game.nextTileRight(unit: Unit)
             = level.tiles[(unit.position.x + 1).toInt()][(unit.position.y).toInt()]
@@ -247,24 +257,33 @@ class MyStrategy {
         // 4- Take a better weapon / swap if ammo is almost gone
 
         var targetPos: Vec2Double = unit.position
-        var targetLabel = "None"
+        var mainPurpose = "None"
 
         val rocketBullets = unit.nearBullets(game, WeaponType.ROCKET_LAUNCHER)
 
-        // 1-
+        // What's the main purpose?
         if (!unit.hasWeapon() && nearestWeapon != null) {
             targetPos = nearestWeapon.position
-            targetLabel = "Weapon"
-        } else if (rocketBullets.isNotEmpty()) {
-            targetPos = unit.dodgeBullet(rocketBullets.first())
-            targetLabel = "DodgeRocket"
+            mainPurpose = "Weapon"
         } else if (nearestHealthPack != null /*&& unit.tookDamage(game)*/) {
             val healthPackPos = nearestHealthPack.position
             if (healthPackPos.isOverPlatform(game))
                 healthPackPos.y += 0.3
             targetPos =  healthPackPos
-            targetLabel = "Health"
-        }/*else if (nearestEnemy != null) {
+            mainPurpose = "Health"
+        } else if (unit.runningOutOfAmmo() && nearestWeapon != null) {
+            targetPos = nearestWeapon.position
+            mainPurpose = "NewWeapon"
+        }
+
+        // Keep an eye on the Rocket bullets
+        if (rocketBullets.isNotEmpty()) {
+            // the main purpose position target is affected by the secondary actions
+            targetPos = unit.dodgeBullet(rocketBullets.first(), targetPos)
+            mainPurpose = "DodgeRocket"
+        }
+
+        /*else if (nearestEnemy != null) {
             targetPos = nearestEnemy.position
         }*/
 
@@ -304,12 +323,13 @@ class MyStrategy {
         action.plantMine = false
 
         debug.draw(CustomData.Log(
-        "unit ${format(unit.position)}, " +
+        "u ${format(unit.position)}, " +
             // "aim = ${format(aim)}, " +
-            "enemy ${format(nearestEnemy?.position ?: Vec2Double())}, " +
-            "velX ${format(action.velocity)}, " +
+            "e ${format(nearestEnemy?.position ?: Vec2Double())}, " +
+            "dx ${format(action.velocity)}, " +
+            "h = ${unit.health}, " +
             // "shoot = $shoot, " +
-            "target ${targetInfo(targetLabel, targetPos)}"
+            "main ${targetInfo(mainPurpose, targetPos)}"
         ))
 
         return action
@@ -349,7 +369,7 @@ class MyStrategy {
             return (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)
         }
 
-        const val NEAR_BULLETS_DISTANCE = 12
+        const val NEAR_BULLETS_DISTANCE = 15
     }
 
     private fun format(v: Vec2Double): String {

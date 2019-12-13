@@ -11,6 +11,7 @@ class Bullet {
     var damage: Int = 0
     var size: Double = 0.0
     var explosionParams: model.ExplosionParams? = null
+
     constructor() {}
     constructor(weaponType: model.WeaponType, unitId: Int, playerId: Int, position: model.Vec2Double, velocity: model.Vec2Double, damage: Int, size: Double, explosionParams: model.ExplosionParams?) {
         this.weaponType = weaponType
