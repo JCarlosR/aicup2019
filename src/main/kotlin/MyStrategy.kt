@@ -5,7 +5,7 @@ import kotlin.math.max
 
 class MyStrategy {
 
-    private fun getNearestEnemy(unit: model.Unit, game: Game): model.Unit? {
+    private fun getNearestEnemy(unit: Unit, game: Game): Unit? {
         var nearestEnemy: Unit? = null
         for (other in game.getOtherUnits(unit)) {
             if (nearestEnemy == null || unit.distanceTo(other.position) < unit.distanceTo(nearestEnemy.position)) {
@@ -15,13 +15,13 @@ class MyStrategy {
         return nearestEnemy
     }
 
-    private fun getNearestWeapon(unit: model.Unit, game: Game)
+    private fun getNearestWeapon(unit: Unit, game: Game)
             = getNearestLootBox(unit, game, Item.Weapon::class.java)
 
-    private fun getNearestHealthPack(unit: model.Unit, game: Game)
+    private fun getNearestHealthPack(unit: Unit, game: Game)
             = getNearestLootBox(unit, game, Item.HealthPack::class.java)
 
-    private fun getNearestLootBox(unit: model.Unit, game: Game, itemClass: Class<out Item>): LootBox? {
+    private fun getNearestLootBox(unit: Unit, game: Game, itemClass: Class<out Item>): LootBox? {
         var nearestItem: LootBox? = null
 
         for (lootBox in game.lootBoxes) {
@@ -36,12 +36,12 @@ class MyStrategy {
         return nearestItem
     }
 
-    private fun model.Unit.hasWeapon() = weapon != null
-    private fun model.Unit.hasWeapon(weaponType: WeaponType)
+    private fun Unit.hasWeapon() = weapon != null
+    private fun Unit.hasWeapon(weaponType: WeaponType)
             = weapon?.typ == weaponType
-    private fun model.Unit.tookDamage(game: Game) = health < game.properties.unitMaxHealth
+    private fun Unit.tookDamage(game: Game) = health < game.properties.unitMaxHealth
 
-    private fun model.Unit.aimTo(enemy: model.Unit?): Vec2Double {
+    private fun Unit.aimTo(enemy: Unit?): Vec2Double {
         var aim = Vec2Double(0.0, 0.0)
         if (enemy == null) return aim
 
@@ -53,7 +53,7 @@ class MyStrategy {
         return aim
     }
 
-    private fun model.Unit.shouldSwapWeapon(nearestWeaponType: WeaponType): Boolean {
+    private fun Unit.shouldSwapWeapon(nearestWeaponType: WeaponType): Boolean {
         if (weapon == null)
             return true
 
@@ -158,15 +158,15 @@ class MyStrategy {
         return false
     }
 
-    private fun model.Unit.canNotMoveRight(game: Game): Boolean {
+    private fun Unit.canNotMoveRight(game: Game): Boolean {
         return game.nextTileRight(this) == Tile.WALL || game.thereIsUnitAtTheRight(this)
     }
 
-    private fun model.Unit.canNotMoveLeft(game: Game): Boolean {
+    private fun Unit.canNotMoveLeft(game: Game): Boolean {
         return game.nextTileLeft(this) == Tile.WALL || game.thereIsUnitAtTheLeft(this)
     }
 
-    private fun model.Unit.shouldReload(): Boolean {
+    private fun Unit.shouldReload(): Boolean {
         // TODO: Consider reloadTime & opponent distance
         weapon?.let {
             val minBulletsStock = it.params.magazineSize / 2
@@ -179,13 +179,13 @@ class MyStrategy {
         return false
     }
 
-    private fun Game.nextTileRight(unit: model.Unit)
+    private fun Game.nextTileRight(unit: Unit)
             = level.tiles[(unit.position.x + 1).toInt()][(unit.position.y).toInt()]
 
-    private fun Game.nextTileLeft(unit: model.Unit)
+    private fun Game.nextTileLeft(unit: Unit)
             = level.tiles[(unit.position.x - 1).toInt()][(unit.position.y).toInt()]
 
-    private fun Game.getNearestAffectedWall(from: model.Unit, aim: Vec2Double): Vec2Double? {
+    private fun Game.getNearestAffectedWall(from: Unit, aim: Vec2Double): Vec2Double? {
         var dx = 0.0
 
         while (aim.x > 0 && dx <= aim.x || aim.x < 0 && dx >= aim.x) {
@@ -232,17 +232,12 @@ class MyStrategy {
         return false
     }
 
-    fun getAction(unit: model.Unit, game: Game, debug: Debug): UnitAction {
+    fun getAction(unit: Unit, game: Game, debug: Debug): UnitAction {
         print("tick ${game.currentTick}: ")
 
         val nearestEnemy = getNearestEnemy(unit, game)
         val nearestWeapon = getNearestWeapon(unit, game)
         val nearestHealthPack = getNearestHealthPack(unit, game)
-
-        // TODO: if there is a better weapon near, just take it
-        // TODO: if there is a rocket launcher near & the enemy is just in front, grab it
-
-        // TODO: dodge bullets considering explosion area
 
         // By priority, unit prefers to:
         // 1- Look for a weapon
@@ -325,27 +320,21 @@ class MyStrategy {
     }
 
     private fun adjustVelocity(velocity: Double): Double {
-        /*if (velocity > 0.0 && velocity < 1.0) {
-            return velocity + 1
-        }
-        if (velocity > -1.0 && velocity < 0.0) {
-            return  velocity - 1
-        }*/
         val vel = abs(velocity)
 
-        if (vel >= 1.7 && vel < 2.7) {
+        if (vel >= 2.7)
+            return velocity
+
+        if (vel >= 1.7)
             return velocity * 2
-        }
 
-        if (vel > 0.5 && vel < 1.7) {
+        if (vel >= 0.7)
             return velocity * 3
-        }
 
-        if (vel <= 0.5) {
+        if (vel >= 0.4)
             return velocity * 4
-        }
 
-        return velocity
+        return velocity +1
     }
 
     private fun targetInfo(label: String, position: Vec2Double): String {
