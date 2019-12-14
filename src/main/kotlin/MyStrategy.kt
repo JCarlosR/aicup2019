@@ -109,15 +109,18 @@ class MyStrategy {
     private fun Unit.dodgeBullet(bullet: Bullet, intendedPos: Vec2Double, game: Game): Vec2Double {
         println(
             "bullet ${format(bullet.position)}, " +
-            "bSize ${format(bullet.size)}, " +
-            "bVeloc ${format(bullet.velocity)}, " +
-            "bDamage ${bullet.damage}, " +
-            "collision ${willCollision(bullet, game)}, " +
-            "comingH ${bullet.isComingHorizontallyTo(position)}"
+            // "bSize ${format(bullet.size)}, " +
+            "bVel ${format(bullet.velocity)}, " +
+            // "bDmg ${bullet.damage}, " +
+            "willCollision ${willCollision(bullet, game)}, " +
+            "comingH ${bullet.isComingHorizontallyTo(position)}, " +
+            "${jumpState.info()}, " +
+            // "ground ${this.onGround}, " +
+            // "ground ${this.onGround}, " +
+            "falling ${this.isFalling()}"
         )
 
         // where is better to move?
-        // TODO: take in consideration unit's movement
         if (willCollision(bullet, game) && bullet.isComingHorizontallyTo(position)) {
             return Vec2Double(position.x, position.y + 1)
         }
@@ -125,18 +128,34 @@ class MyStrategy {
         return intendedPos
     }
 
+    private fun JumpState.info(): String {
+        return "jumpSpeed ${this.speed}, " +
+                "canCancel ${this.canCancel}, " +
+                "canJump ${this.canJump}"
+    }
+
     private fun Unit.willCollision(bullet: Bullet, game: Game, ticksToPredict: Int = 10): Boolean {
-        val bulletPos = bullet.position
+        val bulletPos = Vec2Double(bullet.position.x, bullet.position.y)
+        val unitPos = Vec2Double(position.x, position.y)
+
+        val unitDy = if (this.jumpState.speed > 0)
+            this.jumpState.speed / game.properties.ticksPerSecond
+        else
+            this.fallingSpeed(game)
 
         // movement per tick
         val dx = bullet.velocity.x / game.properties.ticksPerSecond
         val dy = bullet.velocity.y / game.properties.ticksPerSecond
 
+        // TODO: take in consideration that a wall can stop falling, and also the max jumping time can cause falling
         for (i in 1..ticksToPredict) {
             bulletPos.x += dx
             bulletPos.y += dy
 
-            if (this.collisionsWith(bulletPos, bullet.size))
+            // unitPos.x canAlwaysBeReverted
+            unitPos.y += unitDy
+
+            if (this.evaluateBulletCollisionAt(unitPos, bulletPos, bullet.size))
                 return true
         }
 
@@ -148,6 +167,10 @@ class MyStrategy {
     }
 
     private fun Unit.collisionsWith(bulletPos: Vec2Double, bulletSize: Double): Boolean {
+        return evaluateBulletCollisionAt(this.position, bulletPos, bulletSize)
+    }
+
+    private fun Unit.evaluateBulletCollisionAt(unitEvaluatedPos: Vec2Double, bulletPos: Vec2Double, bulletSize: Double): Boolean {
         // bullet position considers the center of it
         val x1 = bulletPos.x - bulletSize/2
         val x2 = bulletPos.x + bulletSize/2
@@ -155,16 +178,16 @@ class MyStrategy {
         val y2 = bulletPos.y + bulletSize/2
 
         // unit position considers the bottom middle point
-        val x3 = position.x - size.x/2
-        val x4 = position.x + size.x/2
-        val y3 = position.y
-        val y4 = position.y + size.y
+        val x3 = unitEvaluatedPos.x - size.x/2
+        val x4 = unitEvaluatedPos.x + size.x/2
+        val y3 = unitEvaluatedPos.y
+        val y4 = unitEvaluatedPos.y + size.y
 
-        if (x1 < x4 && x2 > x3 && y1 < y4 && y2 > y3)
-            return true
-
-        return false
+        return theyCollision(x1, x2, x3, x4, y1, y2, y3, y4)
     }
+
+    private fun theyCollision(x1: Double, x2: Double, x3: Double, x4: Double, y1: Double, y2: Double, y3: Double, y4: Double)
+            = x1 < x4 && x2 > x3 && y1 < y4 && y2 > y3
 
     private fun Bullet.isComingHorizontallyTo(certainPosition: Vec2Double): Boolean {
         val bulletAtTheRight = certainPosition.x < position.x
@@ -201,6 +224,14 @@ class MyStrategy {
         return false
     }
 
+    private fun Unit.isFalling() = jumpState.speed == 0.0 && !jumpState.canCancel
+
+    private fun Unit.fallingSpeed(game: Game) =
+        if (this.isFalling())
+            FALLING_SPEED / game.properties.ticksPerSecond
+        else 0.0
+
+
     private fun Weapon.lessThanHalfBullets() = magazine < params.magazineSize / 2
 
     private fun Game.nextTileRight(unit: Unit)
@@ -218,7 +249,13 @@ class MyStrategy {
             val dy = aim.y * dx / aim.x // same angle
             val targetY = from.position.y + dy
 
-            val isWall = level.tiles[targetX.toInt()][targetY.toInt()] == Tile.WALL
+            val posX = targetX.toInt()
+            val posY = targetY.toInt()
+
+            val isWall =
+                if (posX < level.tiles.size && posY < level.tiles[posX].size)
+                    level.tiles[posX][posY] == Tile.WALL
+                else false
 
             if (isWall) {
                 // println("Nearest affected wall at $targetX, $targetY")
@@ -257,7 +294,7 @@ class MyStrategy {
     }
 
     fun getAction(unit: Unit, game: Game, debug: Debug): UnitAction {
-        print("tick ${game.currentTick}: ")
+        print("t${game.currentTick}: ")
 
         val nearestEnemy = getNearestEnemy(unit, game)
         val nearestWeapon = getNearestWeapon(unit, game)
@@ -315,6 +352,7 @@ class MyStrategy {
         }
 
         var jump = targetPos.y > unit.position.y
+        // print("targetPos ${format(targetPos)}, unitPos ${format(unit.position)}, ")
         if (targetPos.x > unit.position.x && unit.canNotMoveRight(game)) {
             jump = true
         }
@@ -345,8 +383,9 @@ class MyStrategy {
             "dx ${format(action.velocity)}, " +
             "h = ${unit.health}, " +
             // "shoot = $shoot, " +
-            "main ${targetInfo(mainPurpose, targetPos)}, " +
-            "secondary $secondaryPurpose"
+            "mP ${targetInfo(mainPurpose, targetPos)}, " +
+            "sP $secondaryPurpose, " +
+            "t/S ${game.properties.ticksPerSecond}, "
         ))
 
         return action
@@ -387,6 +426,7 @@ class MyStrategy {
         }
 
         const val NEAR_BULLETS_DISTANCE = 15
+        const val FALLING_SPEED = -10.0 // units per Second
     }
 
     private fun format(v: Vec2Double): String {
