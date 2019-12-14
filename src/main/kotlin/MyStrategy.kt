@@ -1,7 +1,6 @@
 import model.*
 import model.Unit
 import kotlin.math.abs
-import kotlin.math.max
 
 class MyStrategy {
 
@@ -107,30 +106,53 @@ class MyStrategy {
                 && distanceFromCenter(bullet.position) < NEAR_BULLETS_DISTANCE
             }
 
-    private fun Unit.dodgeBullet(bullet: Bullet, intendedPos: Vec2Double): Vec2Double {
+    private fun Unit.dodgeBullet(bullet: Bullet, intendedPos: Vec2Double, game: Game): Vec2Double {
         println(
             "bullet ${format(bullet.position)}, " +
             "bSize ${format(bullet.size)}, " +
             "bVeloc ${format(bullet.velocity)}, " +
             "bDamage ${bullet.damage}, " +
-            "collision ${willCollision(bullet)}, " +
+            "collision ${willCollision(bullet, game)}, " +
             "comingH ${bullet.isComingHorizontallyTo(position)}"
         )
 
         // where is better to move?
-        if (willCollision(bullet) && bullet.isComingHorizontallyTo(position)) {
+        // TODO: take in consideration unit's movement
+        if (willCollision(bullet, game) && bullet.isComingHorizontallyTo(position)) {
             return Vec2Double(position.x, position.y + 1)
         }
 
         return intendedPos
     }
 
-    private fun Unit.willCollision(bullet: Bullet): Boolean {
+    private fun Unit.willCollision(bullet: Bullet, game: Game, ticksToPredict: Int = 10): Boolean {
+        val bulletPos = bullet.position
+
+        // movement per tick
+        val dx = bullet.velocity.x / game.properties.ticksPerSecond
+        val dy = bullet.velocity.y / game.properties.ticksPerSecond
+
+        for (i in 1..ticksToPredict) {
+            bulletPos.x += dx
+            bulletPos.y += dy
+
+            if (this.collisionsWith(bulletPos, bullet.size))
+                return true
+        }
+
+        return false
+    }
+
+    private fun Unit.collisionsWith(bullet: Bullet): Boolean {
+        return this.collisionsWith(bullet.position, bullet.size)
+    }
+
+    private fun Unit.collisionsWith(bulletPos: Vec2Double, bulletSize: Double): Boolean {
         // bullet position considers the center of it
-        val x1 = bullet.position.x - bullet.size/2
-        val x2 = bullet.position.x + bullet.size/2
-        val y1 = bullet.position.y - bullet.size/2
-        val y2 = bullet.position.y + bullet.size/2
+        val x1 = bulletPos.x - bulletSize/2
+        val x2 = bulletPos.x + bulletSize/2
+        val y1 = bulletPos.y - bulletSize/2
+        val y2 = bulletPos.y + bulletSize/2
 
         // unit position considers the bottom middle point
         val x3 = position.x - size.x/2
@@ -138,18 +160,10 @@ class MyStrategy {
         val y3 = position.y
         val y4 = position.y + size.y
 
-        val left = max(x1, x3)
-        val top = max(y2, y4)
-        val right = max(x2, x4)
-        val bottom = max(y1, y3)
+        if (x1 < x4 && x2 > x3 && y1 < y4 && y2 > y3)
+            return true
 
-        val width = right - left
-        val height = top - bottom
-
-        if (width<0 || height<0)
-            return false
-
-        return true
+        return false
     }
 
     private fun Bullet.isComingHorizontallyTo(certainPosition: Vec2Double): Boolean {
@@ -275,17 +289,19 @@ class MyStrategy {
             targetPos = nearestWeapon.position
             mainPurpose = "NewWeapon"
         }
-
-        // Keep an eye on the Rocket bullets
-        if (rocketBullets.isNotEmpty()) {
-            // the main purpose position target is affected by the secondary actions
-            targetPos = unit.dodgeBullet(rocketBullets.first(), targetPos)
-            mainPurpose = "DodgeRocket"
-        }
-
         /*else if (nearestEnemy != null) {
             targetPos = nearestEnemy.position
         }*/
+
+
+        var secondaryPurpose = "None"
+        // Keep an eye on the Rocket bullets
+        if (rocketBullets.isNotEmpty()) {
+            // the main purpose position target is affected by the secondary actions
+            targetPos = unit.dodgeBullet(rocketBullets.first(), targetPos, game)
+            secondaryPurpose = "DodgeRocket"
+        }
+
 
         val aim = unit.aimTo(nearestEnemy)
 
@@ -329,7 +345,8 @@ class MyStrategy {
             "dx ${format(action.velocity)}, " +
             "h = ${unit.health}, " +
             // "shoot = $shoot, " +
-            "main ${targetInfo(mainPurpose, targetPos)}"
+            "main ${targetInfo(mainPurpose, targetPos)}, " +
+            "secondary $secondaryPurpose"
         ))
 
         return action
