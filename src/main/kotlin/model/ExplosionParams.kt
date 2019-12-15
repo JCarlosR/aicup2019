@@ -5,6 +5,7 @@ import util.StreamUtil
 class ExplosionParams {
     var radius: Double = 0.0
     var damage: Int = 0
+
     constructor() {}
     constructor(radius: Double, damage: Int) {
         this.radius = radius
