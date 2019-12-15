@@ -1,6 +1,7 @@
 import model.*
 import model.Unit
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class MyStrategy {
 
@@ -52,14 +53,22 @@ class MyStrategy {
         return aim
     }
 
-    private fun Unit.shouldSwapWeapon(nearestWeaponType: WeaponType): Boolean {
-        if (weapon == null)
-            return true
+    private fun Unit.shouldSwapWeapon(nearestWeapon: Item.Weapon): Boolean {
+        val currentWeapon = weapon ?: return true
 
-        // if the nearestWeapon is a Rifle, and unit doesn't have 1, take it
-        val nearestRifle = nearestWeaponType == WeaponType.ASSAULT_RIFLE && weapon?.typ != WeaponType.ASSAULT_RIFLE
+        var isReloading = false
 
-        if (nearestRifle || runningOutOfAmmo(1))
+        currentWeapon.fireTimer?.let {
+            isReloading = it >= 0.9
+        }
+
+        // if the nearestWeapon is a Rifle and is ready to shoot, and unit doesn't have 1, take it
+        val betterTakeRifle =
+                nearestWeapon.weaponType == WeaponType.ASSAULT_RIFLE
+                && currentWeapon.typ != WeaponType.ASSAULT_RIFLE
+                && isReloading
+
+        if (betterTakeRifle || runningOutOfAmmo(0))
             return true
 
         return false
@@ -82,13 +91,13 @@ class MyStrategy {
         if (nearestEnemy == null)
             return false
 
-        // if enemy is on top, simply shoot
-        if (nearestEnemy.isOnTopOf(this))
+        // if enemy is on top or bottom, simply shoot
+        if (nearestEnemy.isOnTopOf(this) || nearestEnemy.isOnBottomOf(this))
             return true
 
         // don't shoot if there is a wall in the middle
         val affectedWall = game.getNearestAffectedWall(this, aim)
-        // this.hasWeapon(WeaponType.ROCKET_LAUNCHER)
+
         if (affectedWall != null && this.distanceTo(nearestEnemy.position) > this.distanceTo(affectedWall))
             return false
 
@@ -97,6 +106,10 @@ class MyStrategy {
 
     private fun Unit.isOnTopOf(unit: Unit): Boolean {
         return this.position.y > unit.position.y && abs(this.position.x - unit.position.x) < 0.7
+    }
+
+    private fun Unit.isOnBottomOf(unit: Unit): Boolean {
+        return this.position.y < unit.position.y && abs(this.position.x - unit.position.x) < 0.7
     }
 
     private fun Unit.nearBullets(game: Game, weaponType: WeaponType)
@@ -113,7 +126,6 @@ class MyStrategy {
             }
 
     private fun Unit.dodgeBullet(bullet: Bullet, intendedPos: Vec2Double, game: Game): Vec2Double {
-        // TODO: consider explosion radius only when it will really explode (against a wall)
         print(
             "bullet ${format(bullet.position)}, " +
             "bVel (${format(bullet.velocity.x/game.properties.ticksPerSecond)}, ${format(bullet.velocity.y/game.properties.ticksPerSecond)}), " +
@@ -129,8 +141,8 @@ class MyStrategy {
         print("u ${format(this.position)}, intended ${format(intendedPos)}, ")
         var wasCorrected = false
 
+        // || willExplode(bullet, game, intendedPos) against a wall
         if (willCollision(bullet, game, intendedPos)) {
-            print("willColl, ")
 
             // stop jumping to avoid the bullet
             if (this.jumpState.speed > 0 && this.jumpState.canCancel)
@@ -207,12 +219,6 @@ class MyStrategy {
             dx += dxCorrection
             iterations += 1
 
-            /*
-            val blockedByWall =
-                    dx > 0 && game.nextTileRight(Vec2Double(intendedPos.x+dx, intendedPos.y), Tile.WALL) ||
-                    dx < 0 && game.nextTileLeft(Vec2Double(intendedPos.x+dx, intendedPos.y), Tile.WALL)
-            */
-
             if (iterations >= MAX_ITERATIONS || dx > game.level.tiles.size) {
                 // print("dx $dx, game.tiles.size ${game.level.tiles.size}, ")
                 return false
@@ -247,28 +253,48 @@ class MyStrategy {
             unitPos.x += unitDx
             unitPos.y += unitDy
 
-            val explosionSize = bullet.explosionParams?.radius ?: 0.0
-            if (this.evaluateBulletCollisionAt(unitPos, bulletPos, bullet.size+explosionSize))
+            val collisionsWithBullet = this.bulletCollisionsAt(unitPos, bulletPos, bullet.size*3)
+
+            val explosionRadius = bullet.explosionParams?.radius ?: 0.0
+
+            val collisionsWithExplosion =
+                    if (explosionRadius > 0)
+                        this.explosionCollisionsAt(unitPos, bulletPos, explosionRadius, game)
+                    else false
+
+            if (collisionsWithBullet || collisionsWithExplosion)
                 return true
         }
 
         return false
     }
 
-    private fun Unit.collisionsWith(bullet: Bullet): Boolean {
-        return this.collisionsWith(bullet.position, bullet.size)
-    }
-
-    private fun Unit.collisionsWith(bulletPos: Vec2Double, bulletSize: Double): Boolean {
-        return evaluateBulletCollisionAt(this.position, bulletPos, bulletSize)
-    }
-
-    private fun Unit.evaluateBulletCollisionAt(unitEvaluatedPos: Vec2Double, bulletPos: Vec2Double, bulletSize: Double): Boolean {
+    private fun Unit.bulletCollisionsAt(unitEvaluatedPos: Vec2Double, bulletPos: Vec2Double, bulletSize: Double): Boolean {
         // bullet position considers the center of it
         val x1 = bulletPos.x - bulletSize/2
         val x2 = bulletPos.x + bulletSize/2
         val y1 = bulletPos.y - bulletSize/2
         val y2 = bulletPos.y + bulletSize/2
+
+        // unit position considers the bottom middle point
+        val x3 = unitEvaluatedPos.x - size.x/2
+        val x4 = unitEvaluatedPos.x + size.x/2
+        val y3 = unitEvaluatedPos.y
+        val y4 = unitEvaluatedPos.y + size.y
+
+        return theyCollision(x1, x2, x3, x4, y1, y2, y3, y4)
+    }
+
+    private fun Unit.explosionCollisionsAt(unitEvaluatedPos: Vec2Double, bulletPos: Vec2Double, /*bulletSize: Double, */radius: Double, game: Game): Boolean {
+        // is bullet exploding at a wall?
+        if (!game.isInsideTile(bulletPos, Tile.WALL))
+            return false // no explosion at all
+
+        // explosion rect from the center of the bullet
+        val x1 = bulletPos.x - radius
+        val x2 = bulletPos.x + radius
+        val y1 = bulletPos.y - radius
+        val y2 = bulletPos.y + radius
 
         // unit position considers the bottom middle point
         val x3 = unitEvaluatedPos.x - size.x/2
@@ -309,7 +335,7 @@ class MyStrategy {
     }
 
     private fun Unit.shouldReload(): Boolean {
-        // TODO: Consider reloadTime & opponent distance
+        // Consider reloadTime & opponent distance
         weapon?.let {
             if (hasWeapon() && it.lessThanHalfBullets()) {
                 return true
@@ -322,10 +348,13 @@ class MyStrategy {
     private fun Unit.isFalling() = jumpState.speed == 0.0 && !jumpState.canCancel
 
     private fun Unit.fallingSpeed(game: Game) =
-        if (this.isFalling())
-            FALLING_SPEED / game.properties.ticksPerSecond
-        else 0.0
+        FALLING_SPEED / game.properties.ticksPerSecond
 
+    private fun Unit.stepDownBy1Side(targetPos: Vec2Double, game: Game) {
+        if (game.thereIsUnitAtTheBottom(this)) {
+            targetPos.x.roundToInt()
+        }
+    }
 
     private fun Weapon.lessThanHalfBullets() = magazine < params.magazineSize / 2
 
@@ -348,6 +377,21 @@ class MyStrategy {
         if (posY < 0) posY = 0
 
         return level.tiles[posX][posY]
+    }
+
+    private fun Game.isInsideTile(position: Vec2Double, tile: Tile): Boolean {
+        if (position.x < 0 || position.y < 0) return false
+
+        var posX = position.x.toInt()
+        var posY = position.y.toInt()
+
+        if (posX >= this.level.tiles.size)
+            posX = this.level.tiles.size -1
+
+        if (posY >= this.level.tiles[posX].size)
+            posY = this.level.tiles[posX].size -1
+
+        return this.level.tiles[posX][posY] == tile
     }
 
 
@@ -411,6 +455,15 @@ class MyStrategy {
         return false
     }
 
+    private fun Game.thereIsUnitAtTheBottom(mainUnit: Unit): Boolean {
+        for (other in getOtherUnits(mainUnit)) {
+            if (other.position.x.toInt() == mainUnit.position.x.toInt() && other.position.y < mainUnit.position.y) {
+                return true
+            }
+        }
+        return false
+    }
+
     fun getAction(unit: Unit, game: Game, debug: Debug): UnitAction {
         print("t${game.currentTick}: ")
 
@@ -434,8 +487,7 @@ class MyStrategy {
         var swapWeapon = false
         if (nearestWeapon != null) {
             // nearestWeapon is a LootBox
-            val nearestWeaponType = (nearestWeapon.item as Item.Weapon).weaponType
-            swapWeapon = unit.shouldSwapWeapon(nearestWeaponType)
+            swapWeapon = unit.shouldSwapWeapon((nearestWeapon.item as Item.Weapon))
         }
 
         // What's the main purpose?
@@ -457,10 +509,13 @@ class MyStrategy {
             targetPos = nearestWeapon.position
             mainPurpose = "NewWeapon"
 
-        }/* else if (nearestEnemy != null) {
+        } else if (nearestEnemy != null) {
             targetPos = nearestEnemy.position
-        }*/
+            mainPurpose = "Enemy"
+        }
 
+        // if there is another Unit at the bottom
+        unit.stepDownBy1Side(targetPos, game)
 
         var secondaryPurpose = "None"
 
@@ -505,19 +560,31 @@ class MyStrategy {
         action.swapWeapon = swapWeapon
         action.plantMine = false
 
-        debug.draw(CustomData.Log(
-        "u ${format(unit.position)}, " +
+
+        val debugData =
+            "u ${format(unit.position)} " +
             // "aim = ${format(aim)}, " +
             "e ${format(nearestEnemy?.position ?: Vec2Double())}, " +
             "dx ${format(action.velocity)}, " +
-            "h = ${unit.health}, " +
-            "mP $mainPurpose, " +
-            "sP $secondaryPurpose, " +
-            "targetPos = ${format(targetPos)}, " +
-            "t/S ${game.properties.ticksPerSecond}, "
-        ))
+            "h ${unit.health}, " +
+            "[$mainPurpose] " +
+            "[$secondaryPurpose], " +
+            "moveTo = ${format(targetPos)}, " +
+            "magazine = ${unit.currentMagazine()}, " +
+            "${unit.weapon?.info()}"
+        // "t/S ${game.properties.ticksPerSecond}, "
+
+        debug.draw(CustomData.Log(debugData))
 
         return action
+    }
+
+    private fun Unit.currentMagazine(): Int {
+        return this.weapon?.magazine ?: 0
+    }
+
+    private fun Weapon.info(): String {
+        return "fireT ${format(this.fireTimer ?: 0.0)}, lastF ${this.lastFireTick}, wasS ${this.wasShooting}"
     }
 
     private fun Unit.getVelocityX(targetPos: Vec2Double): Double {

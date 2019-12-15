@@ -58,7 +58,8 @@ estimating the time that a jump or a move to a X position will take
 
 Let's start with simplified ideas to advance in the ranking.
 
+* [ ] If the target position has the same X but there is a unit below, go by 1 side
 * [ ] Dodge rocket launcher bullets
 * [ ] Take in consideration the explosion area of rockets
-* [ ] If there is a better weapon near, just take it
+* [x] If there is a better weapon near, just take it
 * [ ] If there is a rocket launcher near & the enemy is just in front, grab it & kill shooting coming near   
