@@ -241,7 +241,7 @@ class MyStrategy {
         val unitDy = if (this.position.y < intendedPos.y)
             this.jumpState.speed / game.properties.ticksPerSecond
         else
-            this.fallingSpeed(game)
+            fallingSpeed(game)
 
         // movement per tick
         val dx = bullet.velocity.x / game.properties.ticksPerSecond
@@ -353,7 +353,7 @@ class MyStrategy {
 
     private fun Unit.isFalling() = jumpState.speed == 0.0 && !jumpState.canCancel
 
-    private fun Unit.fallingSpeed(game: Game) =
+    private fun fallingSpeed(game: Game) =
         FALLING_SPEED / game.properties.ticksPerSecond
 
     private fun Unit.stepDownBy1Side(targetPos: Vec2Double, game: Game) {
