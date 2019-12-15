@@ -137,20 +137,22 @@ class MyStrategy {
             "falling ${this.isFalling()}, "
         )
 
-        // moving to the intended pos causes a collision? (the intended pos could be the current pos, and it'll work)
+        // moving to the intended pos causes a collision? (the intended pos could be the current pos)
+        // TODO: in order to perform better, a huge improvement would be to consider the intendedPosition separated from the velocity required to move
         print("u ${format(this.position)}, intended ${format(intendedPos)}, ")
         var wasCorrected = false
 
-        // || willExplode(bullet, game, intendedPos) against a wall
-        if (willCollision(bullet, game, intendedPos)) {
+        val ticksToPredict = distanceTo(bullet.position).toInt()
+        if (willCollision(bullet, game, intendedPos, ticksToPredict)) {
 
             // stop jumping to avoid the bullet
-            if (this.jumpState.speed > 0 && this.jumpState.canCancel)
-                correctIntendedPosY(bullet, game, intendedPos, -0.2)
+            val isReallyJumping = game.nextTileBottom(this) != Tile.WALL
+            if (this.jumpState.speed > 0 && this.jumpState.canCancel && isReallyJumping)
+                correctIntendedPosY(bullet, game, intendedPos, -0.5)
 
             // keep jumping to avoid the bullet
             if (this.jumpState.speed > 0 && this.jumpState.canJump)
-                correctIntendedPosY(bullet, game, intendedPos, +0.2)
+                correctIntendedPosY(bullet, game, intendedPos, +0.5)
 
             // try to avoid moving horizontally to the intended direction
             val wannaMoveRight = this.position.x < intendedPos.x
@@ -225,12 +227,12 @@ class MyStrategy {
             }
         } while (willCollision(bullet, game, Vec2Double(intendedPos.x +dx, intendedPos.y)))
 
-        println("intended.x from ${format(intendedPos.x)} to ${format(intendedPos.x + dx)}, ")
+        print("intended.x from ${format(intendedPos.x)} to ${format(intendedPos.x + dx)}, ")
         intendedPos.x += dx
         return true
     }
 
-    private fun Unit.willCollision(bullet: Bullet, game: Game, intendedPos: Vec2Double, ticksToPredict: Int = 10): Boolean {
+    private fun Unit.willCollision(bullet: Bullet, game: Game, intendedPos: Vec2Double, ticksToPredict: Int = 16): Boolean {
         val bulletPos = Vec2Double(bullet.position.x, bullet.position.y)
         val unitPos = Vec2Double(position.x, position.y)
 
@@ -245,13 +247,17 @@ class MyStrategy {
         val dx = bullet.velocity.x / game.properties.ticksPerSecond
         val dy = bullet.velocity.y / game.properties.ticksPerSecond
 
-        // TODO: take in consideration that a wall can stop falling, and the max jumping time can cause falling
+        // TODO: take in consideration a wall can stop the falling, & the max jumping time can cause it
         for (i in 1..ticksToPredict) {
             bulletPos.x += dx
             bulletPos.y += dy
 
             unitPos.x += unitDx
             unitPos.y += unitDy
+
+            // if blocked by a wall, and the movement is impossible, consider as a collision
+            if (game.isInsideTile(unitPos, Tile.WALL))
+                return true
 
             val collisionsWithBullet = this.bulletCollisionsAt(unitPos, bulletPos, bullet.size*3)
 
@@ -363,6 +369,14 @@ class MyStrategy {
         if (posX < 0) posX = 0
 
         var posY = unit.position.y.toInt()
+        if (posY < 0) posY = 0
+
+        return level.tiles[posX][posY]
+    }
+
+    private fun Game.nextTileBottom(unit: Unit): Tile {
+        val posX = unit.position.x.toInt()
+        var posY = (unit.position.y-1).toInt()
         if (posY < 0) posY = 0
 
         return level.tiles[posX][posY]
@@ -638,7 +652,7 @@ class MyStrategy {
             return (a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)
         }
 
-        const val NEAR_BULLETS_DISTANCE = 24
+        const val NEAR_BULLETS_DISTANCE = 25
         const val FALLING_SPEED = -10.0 // units per Second
         const val MAX_ITERATIONS = 100
     }
