@@ -142,12 +142,15 @@ class MyStrategy {
         print("u ${format(this.position)}, intended ${format(intendedPos)}, ")
         var wasCorrected = false
 
-        val ticksToPredict = distanceTo(bullet.position).toInt()
-        if (willCollision(bullet, game, intendedPos, ticksToPredict)) {
+        if (willCollision(bullet, game, intendedPos)) {
 
             // stop jumping to avoid the bullet
             val isReallyJumping = game.nextTileBottom(this) != Tile.WALL
             if (this.jumpState.speed > 0 && this.jumpState.canCancel && isReallyJumping)
+                correctIntendedPosY(bullet, game, intendedPos, -0.5)
+
+            // going down to avoid the bullet
+            if (this.onLadder)
                 correctIntendedPosY(bullet, game, intendedPos, -0.5)
 
             // keep jumping to avoid the bullet
@@ -158,25 +161,25 @@ class MyStrategy {
             val wannaMoveRight = this.position.x < intendedPos.x
             if (wannaMoveRight) {
                 // move to right to avoid the bullet
-                if (this.canMoveRight(game))
-                    wasCorrected = correctIntendedPosX(bullet, game, intendedPos, +0.5)
+                if (this.canMoveRight(game) && this.canWalkRight(game))
+                    wasCorrected = correctIntendedPosX(bullet, game, intendedPos, +0.2)
 
                 // move to left to avoid the bullet
-                if (!wasCorrected && this.canMoveLeft(game))
-                    correctIntendedPosX(bullet, game, intendedPos, -0.5)
+                if (!wasCorrected && this.canMoveLeft(game) && this.canWalkLeft(game))
+                    correctIntendedPosX(bullet, game, intendedPos, -0.2)
             } else {
                 // move to left to avoid the bullet
-                if (this.canMoveLeft(game))
-                    wasCorrected = correctIntendedPosX(bullet, game, intendedPos, -0.5)
+                if (this.canMoveLeft(game) && this.canWalkLeft(game))
+                    wasCorrected = correctIntendedPosX(bullet, game, intendedPos, -0.2)
 
                 // move to right to avoid the bullet
-                if (!wasCorrected && this.canMoveRight(game))
-                    correctIntendedPosX(bullet, game, intendedPos, +0.5)
+                if (!wasCorrected && this.canMoveRight(game) && this.canWalkRight(game))
+                    correctIntendedPosX(bullet, game, intendedPos, +0.2)
             }
 
             // jump to avoid the bullet
             if (bullet.movesHorizontallyTo(this.position) && !this.isFalling())
-                correctIntendedPosY(bullet, game, intendedPos, +0.5)
+                correctIntendedPosY(bullet, game, intendedPos, +1.0)
         }
 
         println()
@@ -190,7 +193,7 @@ class MyStrategy {
     }
 
     private fun Unit.correctIntendedPosY(bullet: Bullet, game: Game, intendedPos: Vec2Double, dyCorrection: Double): Boolean {
-        print("correctY called ($dyCorrection), ")
+        print("tryToCorrectY ($dyCorrection), ")
         // decrease intendedPos.y until the unit is not affected anymore
         // there should be a limit in the tries (?)
         var dy = 0.0
@@ -201,6 +204,7 @@ class MyStrategy {
             iterations += 1
 
             if (iterations >= MAX_ITERATIONS || dy < -game.level.tiles.size) {
+                print("dy $dy was not enough, ")
                 return false
             }
         } while (willCollision(bullet, game, Vec2Double(intendedPos.x, intendedPos.y + dy)))
@@ -211,7 +215,7 @@ class MyStrategy {
     }
 
     private fun Unit.correctIntendedPosX(bullet: Bullet, game: Game, intendedPos: Vec2Double, dxCorrection: Double): Boolean {
-        print("correctX called ($dxCorrection), ")
+        print("tryToCorrectX ($dxCorrection), ")
         // modify intendedPos.x until the unit dodges moving horizontally
         // there should be a limit in the tries (?)
         var dx = 0.0
@@ -222,7 +226,7 @@ class MyStrategy {
             iterations += 1
 
             if (iterations >= MAX_ITERATIONS || dx > game.level.tiles.size) {
-                // print("dx $dx, game.tiles.size ${game.level.tiles.size}, ")
+                print("dx $dx was not enough, ")
                 return false
             }
         } while (willCollision(bullet, game, Vec2Double(intendedPos.x +dx, intendedPos.y)))
@@ -232,7 +236,7 @@ class MyStrategy {
         return true
     }
 
-    private fun Unit.willCollision(bullet: Bullet, game: Game, intendedPos: Vec2Double, ticksToPredict: Int = 16): Boolean {
+    private fun Unit.willCollision(bullet: Bullet, game: Game, intendedPos: Vec2Double, ticksToPredict: Int = 7): Boolean {
         val bulletPos = Vec2Double(bullet.position.x, bullet.position.y)
         val unitPos = Vec2Double(position.x, position.y)
 
@@ -255,8 +259,9 @@ class MyStrategy {
             unitPos.x += unitDx
             unitPos.y += unitDy
 
-            // if blocked by a wall, and the movement is impossible, consider as a collision
-            if (game.isInsideTile(unitPos, Tile.WALL))
+            // if the movement is impossible, consider as a collision
+            // only at a certain distance
+            if (this.distanceTo(unitPos) < AVAILABLE_TO_RUN_DISTANCE && game.unitCollisionsWallOrBorder(unitPos, this.size))
                 return true
 
             val collisionsWithBullet = this.bulletCollisionsAt(unitPos, bulletPos, bullet.size*3)
@@ -265,7 +270,7 @@ class MyStrategy {
 
             val collisionsWithExplosion =
                     if (explosionRadius > 0)
-                        this.explosionCollisionsAt(unitPos, bulletPos, explosionRadius, game)
+                        this.explosionCollisionsAt(unitPos, bulletPos, bullet.size, explosionRadius, game)
                     else false
 
             if (collisionsWithBullet || collisionsWithExplosion)
@@ -291,9 +296,9 @@ class MyStrategy {
         return theyCollision(x1, x2, x3, x4, y1, y2, y3, y4)
     }
 
-    private fun Unit.explosionCollisionsAt(unitEvaluatedPos: Vec2Double, bulletPos: Vec2Double, /*bulletSize: Double, */radius: Double, game: Game): Boolean {
+    private fun Unit.explosionCollisionsAt(unitEvaluatedPos: Vec2Double, bulletPos: Vec2Double, bulletSize: Double, radius: Double, game: Game): Boolean {
         // is bullet exploding at a wall?
-        if (!game.isInsideTile(bulletPos, Tile.WALL))
+        if (!game.bulletCollisionsWallOrBorder(bulletPos, bulletSize))
             return false // no explosion at all
 
         // explosion rect from the center of the bullet
@@ -340,6 +345,26 @@ class MyStrategy {
         return game.nextTileLeft(this) != Tile.WALL && !game.thereIsUnitAtTheLeft(this)
     }
 
+    private fun Unit.canWalkLeft(game: Game): Boolean {
+        var posX = (this.position.x-1).toInt()
+        if (posX < 0) posX = 0
+
+        var posY = (this.position.y-1).toInt()
+        if (posY < 0) posY = 0
+
+        return game.level.tiles[posX][posY] in arrayOf(Tile.WALL, Tile.PLATFORM, Tile.LADDER)
+    }
+
+    private fun Unit.canWalkRight(game: Game): Boolean {
+        var posX = (this.position.x+1).toInt()
+        if (posX >= game.level.tiles.size) posX = game.level.tiles.size -1
+
+        var posY = (this.position.y-1).toInt()
+        if (posY >= game.level.tiles[posX].size) posY = game.level.tiles[posX].size -1
+
+        return game.level.tiles[posX][posY] in arrayOf(Tile.WALL, Tile.PLATFORM, Tile.LADDER)
+    }
+
     private fun Unit.shouldReload(): Boolean {
         // Consider reloadTime & opponent distance
         weapon?.let {
@@ -384,20 +409,50 @@ class MyStrategy {
 
 
     private fun Game.nextTileLeft(unit: Unit): Tile {
-        var posX = (unit.position.x - 1).toInt()
+        var posX = (unit.position.x - 1).roundToInt()
         if (posX < 0) posX = 0
 
-        var posY = unit.position.y.toInt()
+        var posY = unit.position.y.roundToInt()
         if (posY < 0) posY = 0
 
         return level.tiles[posX][posY]
     }
 
-    private fun Game.isInsideTile(position: Vec2Double, tile: Tile): Boolean {
-        if (position.x < 0 || position.y < 0) return false
+    private fun Game.unitCollisionsWallOrBorder(position: Vec2Double, size: Vec2Double): Boolean {
+        // unit positions point to the middle bottom point
 
-        var posX = position.x.toInt()
+        val x1 = (position.x - size.x/2).toInt()
+        val x2 = (position.x + size.x/2).toInt()
+
+        val y1 = (position.y).toInt()
+        val y2 = (position.y + size.y).toInt()
+
+        return this.collisionsWallOrBorder(x1, y1) ||
+                this.collisionsWallOrBorder(x1, y2) ||
+                this.collisionsWallOrBorder(x2, y1) ||
+                this.collisionsWallOrBorder(x2, y2)
+    }
+
+    private fun Game.bulletCollisionsWallOrBorder(position: Vec2Double, size: Double): Boolean {
+        // bullet positions point to the center of it
+
+        val x1 = (position.x - size/2).toInt()
+        val x2 = (position.x + size/2).toInt()
+
+        val y1 = (position.y - size/2).toInt()
+        val y2 = (position.y + size/2).toInt()
+
+        return this.collisionsWallOrBorder(x1, y1) ||
+                this.collisionsWallOrBorder(x1, y2) ||
+                this.collisionsWallOrBorder(x2, y1) ||
+                this.collisionsWallOrBorder(x2, y2)
+    }
+
+    private fun Game.collisionsWallOrBorder(position: Vec2Double): Boolean {
         var posY = position.y.toInt()
+        var posX = position.x.toInt()
+
+        if (posX < 0 || posY < 0) return  true
 
         if (posX >= this.level.tiles.size)
             posX = this.level.tiles.size -1
@@ -405,7 +460,22 @@ class MyStrategy {
         if (posY >= this.level.tiles[posX].size)
             posY = this.level.tiles[posX].size -1
 
-        return this.level.tiles[posX][posY] == tile
+        return this.collisionsWallOrBorder(posX, posY)
+    }
+
+    private fun Game.collisionsWallOrBorder(x: Int, y: Int): Boolean {
+        var posX = x
+        var posY = y
+
+        if (posX < 0 || posY < 0) return  true
+
+        if (posX >= this.level.tiles.size)
+            posX = this.level.tiles.size -1
+
+        if (posY >= this.level.tiles[posX].size)
+            posY = this.level.tiles[posX].size -1
+
+        return this.level.tiles[posX][posY] == Tile.WALL
     }
 
 
@@ -583,10 +653,11 @@ class MyStrategy {
             "h ${unit.health}, " +
             "[$mainPurpose] " +
             "[$secondaryPurpose], " +
-            "moveTo = ${format(targetPos)}, " +
-            "magazine = ${unit.currentMagazine()}, " +
-            "${unit.weapon?.info()}"
-        // "t/S ${game.properties.ticksPerSecond}, "
+            "moveTo ${format(targetPos)}, " +
+            "magazine ${unit.currentMagazine()}, " +
+            "jMaxTime ${format(unit.jumpState.maxTime)}"
+            // "${unit.weapon?.info()}"
+            // "t/S ${game.properties.ticksPerSecond}, "
 
         debug.draw(CustomData.Log(debugData))
 
@@ -653,6 +724,7 @@ class MyStrategy {
         }
 
         const val NEAR_BULLETS_DISTANCE = 25
+        const val AVAILABLE_TO_RUN_DISTANCE = 10
         const val FALLING_SPEED = -10.0 // units per Second
         const val MAX_ITERATIONS = 100
     }
